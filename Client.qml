@@ -1,7 +1,6 @@
 import QtQuick 2.4
 import QtQuick.Controls 1.3
 import QtQuick.Window 2.2
-import QtQuick.Dialogs 1.2
 import Qt.WebSockets 1.0
 import QtQuick.Layouts 1.1
 import QtQuick.Controls.Styles 1.3
@@ -17,6 +16,24 @@ Window {
     property var fanSpeed : ["low", "medium", "high"]
     property var tempMax
     property var tempMin
+    property var tBefore
+    property var tAfter
+    property bool working
+
+    function testInterval() {
+        tAfter = Date.now();
+        if(tAfter - tBefore > 1000) {
+            var setReq = {
+            "method": "set",
+            "cid": clientID,
+            "target": destTemp.text,
+            "speed": exFan.current.text
+            }
+            socket.sendTextMessage(JSON.stringify(setReq));
+            console.log("Send: "+ setReq);
+        }
+        tBefore = tAfter;
+    }
 
     WebSocket {
         id: socket
@@ -30,22 +47,29 @@ Window {
             switch(msg.method){
             case "handshake":
                 if(msg.result === "ok") {
-                    if(msg.config.mode === "winter")  mode.text = qsTr("制热");
-                    else if(msg.config.mode === "summer")  mode.text = qsTr("制冷");
+                    if(msg.config.mode === "winter")
+                        mode.text = qsTr("制热");
+                    else if(msg.config.mode === "summer")
+                        mode.text = qsTr("制冷");
                     tempMax = msg.config.temp-max;
                     tempMin = msg.config.temp-min;
                 }
                 break;
             case "get":
-                if(msg.result === "ok")  curTemp.text = msg.temp
+                if(msg.result === "ok")
+                    curTemp.text = msg.temp
                 break;
-            case "set":
-                if(msg.result === "ok")  ;
-                else if(msg.result === "failed")  textLog.append(msg.info);
+            case "standby":
+                if(msg.cid === clientID) {
+                    working = false;
+                    repeatTimer.stop();
+                }
                 break;
-            case "shutdown":
-                if(msg.result === "ok")  socket.active = false;
-                else  radioOff.checked = true;
+            case "shutdown": case "checkout":
+                if(msg.result === "ok")
+                    socket.active = false;
+                else
+                    radioOff.checked = true;
                 break;
             }
         }
@@ -54,15 +78,15 @@ Window {
                 textLog.append("Socket open");
 
                 var handshake = {
-                    method : "handshake",
-                    cid : clientID,
-                    temp : curTemp.text,
-                    speed : fanSpeed[1],
-                    target : destTemp.text
+                    "method" : "handshake",
+                    "cid" : clientID,
+                    "temp" : curTemp.text,
+                    "speed" : fanSpeed[1],
+                    "target" : destTemp.text
                 }
 
-                socket.sendTextMessage(JSON.stringify(handshake))
-                textLog.append("Send: "+ JSON.stringify(handshake))
+                socket.sendTextMessage(JSON.stringify(handshake));
+                console.log("Send: "+ handshake);
             } else if(socket.status == WebSocket.Connecting) {
                 textLog.append("Connecting...");
             } else {
@@ -132,8 +156,10 @@ Window {
             Button {
                 id: tempUp
                 text: qsTr("+")
+                checkable: false
                 onClicked: {
-                    destTemp.text = parseInt(destTemp.text) + 1
+                    destTemp.text = (parseInt(destTemp.text) + 1).toString();
+                    testInterval();
                 }
             }
 
@@ -141,7 +167,8 @@ Window {
                 id: tempDown
                 text: qsTr("-")
                 onClicked: {
-                    destTemp.text = parseInt(destTemp.text) - 1
+                    destTemp.text = (parseInt(destTemp.text) - 1).toString();
+                    testInterval();
                 }
             }
         }
@@ -161,7 +188,12 @@ Window {
         ColumnLayout {
             anchors.fill: parent
 
-            ExclusiveGroup { id: exFan }
+            ExclusiveGroup {
+                id: exFan
+                onCurrentChanged: {
+                    testInterval();
+                }
+            }
             RadioButton {
                 id: radioHigh
                 text: qsTr("高")
@@ -324,5 +356,28 @@ Window {
         anchors.fill: parent
         anchors.margins: 60
         running: socket.status == WebSocket.Connecting || socket.status == WebSocket.Closing
+    }
+
+    Timer {
+        id: repeatTimer
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            var getReq = {
+                "method": "get",
+                "cid": clientID
+                }
+            socket.sendTextMessage(JSON.stringify(getReq));
+            console.log("Send: " + getReq);
+        }
+    }
+
+    Timer {
+        //id:
+    }
+
+    Component.onCompleted: {
+        tBefore = Date.now();
+        console.log(tBefore);
     }
 }
