@@ -56,21 +56,32 @@ Window {
                 }
                 break;
             case "get":
-                if(msg.result === "ok")
-                    curTemp.text = msg.temp
-                break;
-            case "standby":
-                if(msg.cid === clientID) {
+                curTemp.text = msg.temp;
+                // no break !!
+            case "set":
+                if(msg.state === "standby") {
                     working = false;
                     repeatTimer.stop();
+                } else if(msg.state === "working") {
+                    working = true;
+                    repeatTimer.start();
+                }
+                if(!msg.temp) {
+                    destTemp.text = msg.temp;
                 }
                 break;
-            case "shutdown": case "checkout":
+            case "shutdown":
                 if(msg.result === "ok")
                     socket.active = false;
-                else
-                    radioOff.checked = true;
                 break;
+            case "checkout":
+            {
+                var checkout = {
+                    "method" : "checkout",
+                    "cid": clientID
+                }
+                break;
+            }
             }
         }
         onStatusChanged:{
@@ -233,6 +244,15 @@ Window {
                 font.pointSize: 12
                 verticalAlignment: Text.AlignVCenter
                 horizontalAlignment: Text.AlignRight
+                onTextChanged: {
+                    var changeReq = {
+                        "method": "changed",
+                        "cid": clientID,
+                        "temp": curTemp.text
+                    }
+                    socket.sendTextMessage(JSON.stringify(changeReq));
+                    console.log("Send: " + changeReq);
+                }
             }
 
             Label {
@@ -373,7 +393,15 @@ Window {
     }
 
     Timer {
-        //id:
+        id: autoChange
+        interval: 3000
+        repeat: true
+        onTriggered: {
+            if(mode.text === "制热")
+                curTemp.text = (parseInt(curTemp.text)-1).toString();
+            else(mode.text == "制冷")
+                curTemp.text = (parseInt(curTemp.text)+1).toString();
+        }
     }
 
     Component.onCompleted: {
