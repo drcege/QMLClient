@@ -9,65 +9,49 @@ Window {
     id: client
     title: qsTr("Client")
     width: 400
-    height: 520
+    height: 400
     visible: true
 
-    property string clientID: "xxx"
-    property var fanSpeed : ["low", "medium", "high"]
+    property var clientID
+    property var fanSpeed
     property var tempMax
     property var tempMin
     property var tBefore
     property var tAfter
-    property bool working
-
-    function testInterval() {
-        tAfter = Date.now();
-        if(tAfter - tBefore > 1000) {
-            var setReq = {
-            "method": "set",
-            "cid": clientID,
-            "target": destTemp.text,
-            "speed": exFan.current.text
-            }
-            socket.sendTextMessage(JSON.stringify(setReq));
-            console.log("Send: "+ setReq);
-        }
-        tBefore = tAfter;
-    }
 
     WebSocket {
         id: socket
         //url: "ws://echo.websocket.org"
-        url: "ws://localhost:8888/"
+        url: "ws://localhost:6666/"
 
         onTextMessageReceived: {
-            textLog.append("Received: " + message);
+            console.debug("Receive: " + message);
             var msg = JSON.parse(message);
 
             switch(msg.method){
             case "handshake":
                 if(msg.result === "ok") {
-                    if(msg.config.mode === "winter")
+                    if(msg.config["mode"] === "winter")
                         mode.text = qsTr("制热");
-                    else if(msg.config.mode === "summer")
+                    else if(msg.config["mode"] === "summer")
                         mode.text = qsTr("制冷");
-                    tempMax = msg.config.temp-max;
-                    tempMin = msg.config.temp-min;
+                    tempMin = msg.config["temp-min"];
+                    tempMax = msg.config["temp-max"];
+                    console.debug(tempMin+" "+tempMax);
                 }
                 break;
             case "get":
-                curTemp.text = msg.temp;
+                curTemp.text = (msg.temp).toString();
+                cost.text = (msg.cost).toString();
                 // no break !!
             case "set":
                 if(msg.state === "standby") {
-                    working = false;
-                    repeatTimer.stop();
-                } else if(msg.state === "working") {
-                    working = true;
-                    repeatTimer.start();
-                }
-                if(!msg.temp) {
-                    destTemp.text = msg.temp;
+                    state.text = "待机";
+                } else if(msg.state === "running") {
+                    state.text = "运行";
+                } else {
+                    state.text = "停机";
+                    socket.active = false;
                 }
                 break;
             case "shutdown":
@@ -75,44 +59,47 @@ Window {
                     socket.active = false;
                 break;
             case "checkout":
-            {
                 var checkout = {
                     "method" : "checkout",
-                    "cid": clientID
+                    "cid": clientID,
+                    "result": "ok"
                 }
+                socket.sendTextMessage(JSON.stringify(checkout));
+                socket.active = false;
                 break;
-            }
             }
         }
         onStatusChanged:{
             if (socket.status == WebSocket.Open) {
-                textLog.append("Socket open");
-
+                console.debug("Socket open");
                 var handshake = {
                     "method" : "handshake",
                     "cid" : clientID,
-                    "temp" : curTemp.text,
-                    "speed" : fanSpeed[1],
-                    "target" : destTemp.text
+                    "temp" : parseInt(curTemp.text),
+                    "speed" : fanSpeed,
+                    "target" : parseInt(destTemp.text)
                 }
-
                 socket.sendTextMessage(JSON.stringify(handshake));
-                console.log("Send: "+ handshake);
+                state.text = "运行";
+                console.debug("Send: "+ JSON.stringify(handshake));
             } else if(socket.status == WebSocket.Connecting) {
-                textLog.append("Connecting...");
+                console.debug("Connecting...");
             } else {
-                if (socket.status == WebSocket.Error) {
+                if (socket.status == WebSocket.Closed) {
+                    console.debug("Socket closed");
+                } else if (socket.status == WebSocket.Error) {
                     socket.active = false
-                    textLog.append("Error: " + socket.errorString);
-                } else if (socket.status == WebSocket.Closed) {
-                    textLog.append("Socket closed");
+                    console.debug("Error: " + socket.errorString);
                 }
-                radioOff.checked = true
+                state.text = "停机";
+                radioOff.checked = true;
+                reset();
             }
         }
         active: false
     }
 
+    /*** Layout ***/
     GroupBox {
         id: groupSwitch
         x: 270
@@ -153,33 +140,43 @@ Window {
 
     GroupBox {
         id: groupTemp
-        width: 180
+        x: 50
+        width: 80
         height: 80
-        anchors.top: groupFan.bottom
-        anchors.topMargin: 30
         anchors.left: parent.left
-        anchors.leftMargin: 50
+        anchors.leftMargin: 150
+        anchors.top: groupSwitch.top
+        anchors.topMargin: 0
         title: qsTr("温度调节")
 
-        RowLayout {
+        ColumnLayout {
+            id: columnLayout
             anchors.fill: parent
 
             Button {
                 id: tempUp
                 text: qsTr("+")
+                Layout.fillWidth: true
                 checkable: false
                 onClicked: {
-                    destTemp.text = (parseInt(destTemp.text) + 1).toString();
-                    testInterval();
+                    var tmp = parseInt(destTemp.text);
+                    if(tmp < tempMax) {
+                        destTemp.text = (tmp + 1).toString();
+                        testInterval();
+                    }
                 }
             }
 
             Button {
                 id: tempDown
                 text: qsTr("-")
+                Layout.fillWidth: true
                 onClicked: {
-                    destTemp.text = (parseInt(destTemp.text) - 1).toString();
-                    testInterval();
+                    var tmp = parseInt(destTemp.text);
+                    if(tmp > tempMin) {
+                        destTemp.text = (tmp - 1).toString();
+                        testInterval();
+                    }
                 }
             }
         }
@@ -202,6 +199,18 @@ Window {
             ExclusiveGroup {
                 id: exFan
                 onCurrentChanged: {
+                    switch(exFan.current.toString())
+                    {
+                    case "高":
+                        fanSpeed = "high";
+                        break;
+                    case "中":
+                        fanSpeed = "medium";
+                        break;
+                    case "低":
+                        fanSpeed = "low";
+                        break;
+                    }
                     testInterval();
                 }
             }
@@ -232,7 +241,7 @@ Window {
         anchors.top: parent.top
         anchors.topMargin: 60
         anchors.left: parent.left
-        anchors.leftMargin: 50
+        anchors.leftMargin: 150
         title: qsTr("当前温度")
 
         RowLayout {
@@ -245,13 +254,15 @@ Window {
                 verticalAlignment: Text.AlignVCenter
                 horizontalAlignment: Text.AlignRight
                 onTextChanged: {
-                    var changeReq = {
-                        "method": "changed",
-                        "cid": clientID,
-                        "temp": curTemp.text
+                    if(state.text == "待机") {
+                        var changeReq = {
+                            "method": "changed",
+                            "cid": clientID,
+                            "temp": parseInt(curTemp.text)
+                        }
+                        socket.sendTextMessage(JSON.stringify(changeReq));
+                        console.debug("Send: " + JSON.stringify(changeReq));
                     }
-                    socket.sendTextMessage(JSON.stringify(changeReq));
-                    console.log("Send: " + changeReq);
                 }
             }
 
@@ -271,7 +282,7 @@ Window {
         width: 80
         height: 60
         anchors.left: parent.left
-        anchors.leftMargin: 150
+        anchors.leftMargin: 50
         anchors.top: parent.top
         anchors.topMargin: 60
         title: qsTr("目标温度")
@@ -312,7 +323,7 @@ Window {
             anchors.fill: parent
 
             Label {
-                id: fee
+                id: dollar
                 text: qsTr("￥")
                 font.pointSize: 12
                 verticalAlignment: Text.AlignVCenter
@@ -320,7 +331,7 @@ Window {
             }
 
             Label {
-                id: label3
+                id: cost
                 text: qsTr("0.0")
                 font.pointSize: 12
                 verticalAlignment: Text.AlignVCenter
@@ -341,7 +352,6 @@ Window {
 
         Label {
             id: mode
-            text: qsTr("制冷")
             font.pointSize: 12
             verticalAlignment: Text.AlignVCenter
             anchors.fill: parent
@@ -350,62 +360,107 @@ Window {
     }
 
     GroupBox {
-        id: groupLog
-        anchors.right: parent.right
-        anchors.rightMargin: 50
+        id: groupState
+        x: 150
+        width: 80
+        height: 80
+        anchors.top: groupSwitch.top
+        anchors.topMargin: 0
         anchors.left: parent.left
         anchors.leftMargin: 50
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 60
-        anchors.top: groupTemp.bottom
-        anchors.topMargin: 30
         title: qsTr("状态")
-
-        TextArea {
-            id: textLog
-            text: "Welcome！"
+        Label {
+            id: state
+            text: qsTr("停机")
             anchors.fill: parent
-            readOnly: true
-            selectByKeyboard: true
-            wrapMode: TextEdit.Wrap
+            verticalAlignment: Text.AlignVCenter
+            font.pointSize: 12
+            horizontalAlignment: Text.AlignHCenter
+            onTextChanged: {
+                if(state.text == "运行"){
+                    repeatTimer.start();
+                    autoChange.stop();
+                } else if(state.text == "待机") {
+                    repeatTimer.stop();
+                    autoChange.start();
+                } else if(state.text == "停机") {
+                    repeatTimer.stop();
+                    autoChange.stop();
+                }
+            }
         }
     }
 
     BusyIndicator {
+        anchors.bottomMargin: 60
         z: 1
         anchors.fill: parent
         anchors.margins: 60
         running: socket.status == WebSocket.Connecting || socket.status == WebSocket.Closing
     }
 
+    /*** Timer ***/
     Timer {
         id: repeatTimer
-        interval: 1000
+        interval: 1000 * 10
         repeat: true
         onTriggered: {
             var getReq = {
                 "method": "get",
                 "cid": clientID
-                }
+            }
             socket.sendTextMessage(JSON.stringify(getReq));
-            console.log("Send: " + getReq);
+            console.debug("Send: " + JSON.stringify(getReq));
         }
     }
 
     Timer {
         id: autoChange
-        interval: 3000
+        interval: 1000 * 10
         repeat: true
         onTriggered: {
-            if(mode.text === "制热")
-                curTemp.text = (parseInt(curTemp.text)-1).toString();
-            else(mode.text == "制冷")
-                curTemp.text = (parseInt(curTemp.text)+1).toString();
+            var tmp = parseInt(curTemp.text);
+            if(mode.text === "制热"){
+                if(tmp > tempMin)
+                    curTemp.text = (tmp - 1).toString();
+            }
+            else if (mode.text == "制冷"){
+                if(tmp < tempMax)
+                    curTemp.text = (tmp + 1).toString();
+            }
         }
     }
 
     Component.onCompleted: {
-        tBefore = Date.now();
-        console.log(tBefore);
+        clientID = "xxx";
+        fanSpeed = "medium";
+        tBefore = 0;
+        reset();
+    }
+
+    /*** custom function ***/
+    function testInterval() {
+        console.debug("testInterval");
+        tAfter = Date.now();
+        console.debug(tAfter + "-" + tBefore + "=" + (tAfter - tBefore));
+        if(tAfter - tBefore > 1000) {
+            var setReq = {
+                "method": "set",
+                "cid": clientID,
+                "target": parseInt(destTemp.text),
+                "speed": fanSpeed
+            }
+            socket.sendTextMessage(JSON.stringify(setReq));
+            console.debug("Send: "+ JSON.stringify(setReq));
+        }
+        tBefore = tAfter;
+    }
+    function reset() {
+        curTemp.text = 25;
+        destTemp.text = 25;
+        cost.text = 0.0;
+        mode.text = "";
+        radioMed.checked = true;
+
     }
 }
