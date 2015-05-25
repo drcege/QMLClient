@@ -41,10 +41,10 @@ Window {
                 }
                 break;
             case "get":
-                curTemp.text = (msg.temp).toString();
-                cost.text = (msg.cost).toString();
+                curTemp.text = msg.temp;
+                cost.text = msg.cost;
                 // no break !!
-            case "set":
+            case "set": case "changed":
                 if(msg.state === "standby") {
                     state.text = "待机";
                 } else if(msg.state === "running") {
@@ -199,15 +199,16 @@ Window {
             ExclusiveGroup {
                 id: exFan
                 onCurrentChanged: {
+                    console.debug(exFan.current.toString());
                     switch(exFan.current.toString())
                     {
-                    case "高":
+                    case radioHigh.toString():
                         fanSpeed = "high";
                         break;
-                    case "中":
+                    case radioMed.toString():
                         fanSpeed = "medium";
                         break;
-                    case "低":
+                    case radioLow.toString():
                         fanSpeed = "low";
                         break;
                     }
@@ -332,7 +333,7 @@ Window {
 
             Label {
                 id: cost
-                text: qsTr("0.0")
+                text: qsTr("0")
                 font.pointSize: 12
                 verticalAlignment: Text.AlignVCenter
                 horizontalAlignment: Text.AlignLeft
@@ -446,7 +447,7 @@ Window {
     }
 
     Component.onCompleted: {
-        clientID = "123";
+        clientID = "xxx";
         fanSpeed = "medium";
         tBefore = 0;
         reset();
@@ -459,6 +460,5 @@ Window {
         cost.text = 0.0;
         mode.text = "";
         radioMed.checked = true;
-
     }
 }
