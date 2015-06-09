@@ -22,7 +22,8 @@ Window {
     WebSocket {
         id: socket
         //url: "ws://echo.websocket.org"
-        url: "ws://localhost:6666/"
+        //url: "ws://localhost:6666/"
+        url: "ws://10.205.21.8:6666/"
 
         onTextMessageReceived: {
             console.debug("Receive: " + message);
