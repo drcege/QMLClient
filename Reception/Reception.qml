@@ -34,8 +34,7 @@ ApplicationWindow {
 
     WebSocket {
         id: socket
-        //url: "ws://localhost:6666/"
-        url: "ws://10.205.21.8:6666/"
+        url: "ws://localhost:6666/"
 
         onTextMessageReceived: {
             console.debug("Receive: " + message);
@@ -63,7 +62,6 @@ ApplicationWindow {
                 if(msg.result === "ok") {
                     messageDialog.show(qsTr("登记成功！"), StandardIcon.Information);
                     textField1.text = textField2.text = textField3.text = textField4.text = "";
-                    console.log(textField1.text)
                 } else {
                     messageDialog.show(qsTr("登记失败！"), StandardIcon.Warning);
                 }
