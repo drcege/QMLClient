@@ -17,9 +17,10 @@ ApplicationWindow {
     property var fanSpeed
     property var tempMax
     property var tempMin
-    property var tBefore
-    property var tAfter
-    property var tmpURL: "ws://localhost:6666/"
+
+    /*** 临时保存设置（程序运行中无法修改） ***/
+    property var tempInit: 25
+    property var tmpURL: "ws://localhost:8080/"
     property var tmpCID: "305f";
 
     WebSocket {
@@ -85,9 +86,9 @@ ApplicationWindow {
                 var handshake = {
                     "method" : "handshake",
                     "cid" : clientID,
-                    "temp" : parseInt(curTemp.text),
+                    "temp" : parseFloat(curTemp.text),
                     "speed" : fanSpeed,
-                    "target" : parseInt(destTemp.text)
+                    "target" : parseFloat(destTemp.text)
                 }
                 socket.sendTextMessage(JSON.stringify(handshake));
                 state.text = "运行";
@@ -97,13 +98,12 @@ ApplicationWindow {
             } else {
                 if (socket.status == WebSocket.Closed) {
                     console.debug("Socket closed");
-                } else if (socket.status == WebSocket.Error) {
-                    socket.active = false
-                    console.debug("Error: " + socket.errorString);
+                } else if(socket.status == WebSocket.Error) {
+                    console.debug("Socket Error: " + socket.errorString);
+                    socket.active = false;
                 }
                 state.text = "停机";
                 radioOff.checked = true;
-                reset();
             }
         }
         active: false
@@ -118,8 +118,6 @@ ApplicationWindow {
                 onTriggered:{
                     scene_main.visible = false;
                     scene_setting.visible = true;
-                    textFieldURL.text = socket.url;
-                    textFieldCID.text = clientID;
                 }
             }
         }
@@ -151,9 +149,10 @@ ApplicationWindow {
                     text: qsTr("On")
                     exclusiveGroup: onoff
                     onClicked: {
-                        clientID = tmpCID;
                         socket.url = tmpURL;
+                        console.debug(socket.status);
                         socket.active = true;
+                        console.debug(socket.status);
                     }
                 }
 
@@ -194,11 +193,13 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     checkable: false
                     onClicked: {
-                        var tmp = parseInt(destTemp.text);
-                        if(tmp < tempMax) {
+                        var tmp = parseFloat(destTemp.text);
+                        // 温度为浮点，边界判断
+                        if(tmp + 1 <= tempMax) {
                             destTemp.text = (tmp + 1).toString();
                         }
-                        testInterval.restart();
+                        if(state.text != "停机")
+                            testInterval.restart();
                     }
                 }
 
@@ -207,11 +208,13 @@ ApplicationWindow {
                     text: qsTr("-")
                     Layout.fillWidth: true
                     onClicked: {
-                        var tmp = parseInt(destTemp.text);
-                        if(tmp > tempMin) {
+                        var tmp = parseFloat(destTemp.text);
+                        // 温度为浮点，边界判断
+                        if(tmp - 1 >= tempMin) {
                             destTemp.text = (tmp - 1).toString();
                         }
-                        testInterval.restart();
+                        if(state.text != "停机")
+                            testInterval.restart();
                     }
                 }
             }
@@ -247,7 +250,8 @@ ApplicationWindow {
                             fanSpeed = "low";
                             break;
                         }
-                        testInterval.restart();
+                        if(state.text != "停机")
+                            testInterval.restart();
                     }
                 }
                 RadioButton {
@@ -294,7 +298,7 @@ ApplicationWindow {
                             var changeReq = {
                                 "method": "changed",
                                 "cid": clientID,
-                                "temp": parseInt(curTemp.text)
+                                "temp": parseFloat(curTemp.text)
                             }
                             socket.sendTextMessage(JSON.stringify(changeReq));
                             console.debug("Send: " + JSON.stringify(changeReq));
@@ -420,8 +424,17 @@ ApplicationWindow {
                         repeatTimer.stop();
                         autoChange.start();
                     } else if(state.text == "停机") {
+                        console.debug("变为停机");
                         repeatTimer.stop();
                         autoChange.stop();
+
+                        testInterval.stop();
+                        curTemp.text = tempInit;
+                        socket.url = tmpURL;
+                        clientID = tmpCID;
+                        cost.text = "0.0";
+                        mode.text = "";
+                        radioMed.checked = true;
                     }
                 }
             }
@@ -435,12 +448,25 @@ ApplicationWindow {
         anchors.fill: parent
 
         Label {
+            id: labelInit
+            width: 75
+            height: 23
+            text: qsTr("初始温度")
+            anchors.top: parent.top
+            anchors.topMargin: 100
+            anchors.left: parent.left
+            anchors.leftMargin: 80
+            verticalAlignment: Text.AlignVCenter
+            horizontalAlignment: Text.AlignHCenter
+        }
+
+        Label {
             id: labelURL
             width: 75
             height: 23
             text: qsTr("主控机URL")
-            anchors.top: parent.top
-            anchors.topMargin: 100
+            anchors.top: labelInit.bottom
+            anchors.topMargin: 30
             anchors.left: parent.left
             anchors.leftMargin: 80
             verticalAlignment: Text.AlignVCenter
@@ -461,8 +487,7 @@ ApplicationWindow {
         }
 
         TextField {
-            id: textFieldURL
-            x: 172
+            id: textFieldInit
             width: 160
             height: 23
             anchors.top: parent.top
@@ -478,8 +503,23 @@ ApplicationWindow {
         }
 
         TextField {
+            id: textFieldURL
+            width: 160
+            height: 23
+            anchors.top: textFieldInit.bottom
+            anchors.topMargin: 30
+            anchors.right: parent.right
+            anchors.rightMargin: 80
+            onTextChanged: {
+                if(textFieldInit.text.trim().length > 0 && textFieldURL.text.trim().length > 0 && textFieldCID.text.trim().length > 0)
+                    buttonSet.enabled = true;
+                else
+                    buttonSet.enabled = false;
+            }
+        }
+
+        TextField {
             id: textFieldCID
-            x: 161
             width: 160
             height: 23
             anchors.top: textFieldURL.bottom
@@ -487,7 +527,7 @@ ApplicationWindow {
             anchors.right: parent.right
             anchors.rightMargin: 80
             onTextChanged: {
-                if(textFieldURL.text.trim().length > 0 && textFieldCID.text.trim().length > 0)
+                if(textFieldInit.text.trim().length > 0 && textFieldURL.text.trim().length > 0 && textFieldCID.text.trim().length > 0)
                     buttonSet.enabled = true;
                 else
                     buttonSet.enabled = false;
@@ -496,8 +536,6 @@ ApplicationWindow {
 
         Button {
             id: buttonSet
-            x: 175
-            y: 212
             text: qsTr("设置")
             enabled: false
             anchors.bottom: parent.bottom
@@ -505,16 +543,24 @@ ApplicationWindow {
             anchors.right: parent.right
             anchors.rightMargin: 80
             onClicked: {
+                tempInit = textFieldInit.text.trim();
                 tmpURL = textFieldURL.text.trim();
                 tmpCID = textFieldCID.text.trim();
-                messageDialog.show(qsTr("设置成功！重新连接后生效"), StandardIcon.Information)
+
+                if(state.text == "停机") {
+                    curTemp.text = tempInit;
+                    // 如果这里设置地址会马上连接，改到radioOn里设置
+                    //socket.url = tmpURL;
+                    clientID = tmpCID;
+                    messageDialog.show(qsTr("设置成功！"), StandardIcon.Information)
+                } else {
+                    messageDialog.show(qsTr("设置成功！下次连接时生效"), StandardIcon.Information)
+                }
             }
         }
 
         Button {
             id: buttonBack
-            x: 50
-            y: 212
             text: qsTr("返回")
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 100
@@ -565,7 +611,7 @@ ApplicationWindow {
         interval: 1000 * 60 * 2
         repeat: true
         onTriggered: {
-            var tmp = parseInt(curTemp.text);
+            var tmp = parseFloat(curTemp.text);
             if(mode.text === "制热"){
                 curTemp.text = (tmp - 1).toString();
             }
@@ -583,7 +629,7 @@ ApplicationWindow {
             var setReq = {
                 "method": "set",
                 "cid": clientID,
-                "target": parseInt(destTemp.text),
+                "target": parseFloat(destTemp.text),
                 "speed": fanSpeed
             }
             socket.sendTextMessage(JSON.stringify(setReq));
@@ -592,20 +638,13 @@ ApplicationWindow {
     }
 
     Component.onCompleted: {
+        curTemp.text = tempInit;
         socket.url = tmpURL;
         clientID = tmpCID;
         fanSpeed = "medium";
-        tBefore = 0;
-        reset();
-    }
 
-    /*** custom function ***/
-    function reset() {
-        curTemp.text = 25;
-        destTemp.text = 25;
-        cost.text = 0.0;
-        mode.text = "";
-        radioMed.checked = true;
-        testInterval.stop();
+        textFieldInit.text = curTemp.text;
+        textFieldURL.text = socket.url;
+        textFieldCID.text = clientID;
     }
 }
